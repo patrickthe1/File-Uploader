@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'fs';
 import { PrismaClient } from '@prisma/client';
 import { isAuthenticated } from './auth.js';
 
@@ -64,7 +65,23 @@ const deleteFolderRecursively = async (folderId, ownerId) => {
     await deleteFolderRecursively(child.id, ownerId);
   }
 
-  // Delete the folder itself
+  // Get all files in this folder
+  const files = await prisma.file.findMany({
+    where: { folderId: folderId, ownerId }
+  });
+
+  // Delete physical files
+  for (const file of files) {
+    if (fs.existsSync(file.localPath)) {
+      try {
+        fs.unlinkSync(file.localPath);
+      } catch (err) {
+        console.error('Error deleting physical file:', err);
+      }
+    }
+  }
+
+  // Delete the folder itself (files will be cascade deleted)
   await prisma.folder.delete({
     where: { id: folderId }
   });
@@ -198,7 +215,7 @@ router.get('/:id', isAuthenticated, verifyFolderOwnership, async (req, res) => {
   try {
     const folderId = parseInt(req.params.id);
     const ownerId = req.user.id;
-    const { includeChildren } = req.query;
+    const { includeChildren, includeFiles } = req.query;
 
     let folder;
 
@@ -212,10 +229,22 @@ router.get('/:id', isAuthenticated, verifyFolderOwnership, async (req, res) => {
             select: { id: true, name: true }
           },
           _count: {
-            select: { children: true }
+            select: { 
+              children: true,
+              files: true 
+            }
           }
         }
       });
+    }
+
+    // Include files if requested
+    if (includeFiles === 'true') {
+      const files = await prisma.file.findMany({
+        where: { folderId: folderId, ownerId },
+        orderBy: { createdAt: 'desc' }
+      });
+      folder.files = files;
     }
 
     res.json({ folder });
@@ -338,20 +367,31 @@ router.delete('/:id', isAuthenticated, verifyFolderOwnership, async (req, res) =
       where: { parentId: folderId, ownerId }
     });
 
-    if (childrenCount > 0 && force !== 'true') {
+    // Check if folder has files
+    const filesCount = await prisma.file.count({
+      where: { folderId: folderId, ownerId }
+    });
+
+    const hasContent = childrenCount > 0 || filesCount > 0;
+
+    if (hasContent && force !== 'true') {
       return res.status(400).json({ 
-        message: 'Cannot delete folder: Folder contains subfolders. Use force=true to delete recursively.',
-        hasChildren: true,
-        childrenCount
+        message: 'Cannot delete folder: Folder contains subfolders or files. Use force=true to delete recursively.',
+        hasChildren: childrenCount > 0,
+        hasFiles: filesCount > 0,
+        childrenCount,
+        filesCount
       });
     }
 
     if (force === 'true') {
-      // Recursively delete folder and all children
+      // Recursively delete folder and all children/files
       await deleteFolderRecursively(folderId, ownerId);
       res.json({ 
         message: 'Folder and all its contents deleted successfully',
-        deletedRecursively: true
+        deletedRecursively: true,
+        deletedChildren: childrenCount,
+        deletedFiles: filesCount
       });
     } else {
       // Delete empty folder
@@ -365,7 +405,58 @@ router.delete('/:id', isAuthenticated, verifyFolderOwnership, async (req, res) =
     }
   } catch (error) {
     console.error('Delete folder error:', error);
-    res.status(500).json({ message: 'Error deleting folder', error: error.message });
+    res.status(500).json({ message: 'Error deleting folder', error: error.message });  }
+});
+
+// Helper function to format file size
+const formatFileSize = (bytes) => {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
+// FOLDER FILES: GET /api/folders/:id/files - Get all files in a specific folder
+router.get('/:id/files', isAuthenticated, verifyFolderOwnership, async (req, res) => {
+  try {
+    const folderId = parseInt(req.params.id);
+    const ownerId = req.user.id;
+    const folder = req.folder; // Set by verifyFolderOwnership middleware
+
+    // Get files in the folder
+    const files = await prisma.file.findMany({
+      where: {
+        folderId: folderId,
+        ownerId
+      },
+      include: {
+        folder: {
+          select: { id: true, name: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const filesWithFormatting = files.map(file => ({
+      ...file,
+      formattedSize: formatFileSize(file.size)
+    }));
+
+    res.json({
+      folder: {
+        id: folder.id,
+        name: folder.name
+      },
+      files: filesWithFormatting,
+      count: files.length,
+      totalSize: files.reduce((sum, file) => sum + file.size, 0),
+      formattedTotalSize: formatFileSize(files.reduce((sum, file) => sum + file.size, 0))
+    });
+
+  } catch (error) {
+    console.error('Get folder files error:', error);
+    res.status(500).json({ message: 'Error retrieving folder files', error: error.message });
   }
 });
 

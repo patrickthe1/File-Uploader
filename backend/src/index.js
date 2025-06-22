@@ -41,9 +41,11 @@ app.use(passport.session());
 // Import and use routes
 import authRoutes, { isAuthenticated } from './routes/auth.js';
 import folderRoutes from './routes/folders.js';
+import fileRoutes from './routes/files.js';
 
 app.use('/auth', authRoutes);
 app.use('/api/folders', folderRoutes);
+app.use('/api/files', fileRoutes);
 
 app.get('/', (req, res) => {
   res.send('Hello World!');
