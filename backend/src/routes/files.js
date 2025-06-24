@@ -1,31 +1,30 @@
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
-import fs from 'fs';
+import { v2 as cloudinary } from 'cloudinary';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import { PrismaClient } from '@prisma/client';
 import { isAuthenticated } from './auth.js';
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
-// Ensure uploads directory exists
-const uploadsDir = 'uploads';
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
-// Configure Multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
+// Configure Cloudinary storage for Multer
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'file-uploader', // Folder name in Cloudinary
+    allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx', 'txt', 'csv', 'zip'],
+    transformation: [{ quality: 'auto' }], // Automatic optimization
+    resource_type: 'auto', // Auto-detect file type (image, video, raw)
   },
-  filename: (req, file, cb) => {
-    // Generate unique filename: timestamp-random-originalname
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const fileExtension = path.extname(file.originalname);
-    const fileName = file.fieldname + '-' + uniqueSuffix + fileExtension;
-    cb(null, fileName);
-  }
 });
 
 // File filter for security and validation
@@ -54,7 +53,7 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Configure multer with options
+// Configure multer with Cloudinary storage
 const upload = multer({
   storage: storage,
   limits: {
@@ -164,35 +163,39 @@ router.post('/upload', isAuthenticated, (req, res, next) => {
     if (folderId) {
       const folder = await prisma.folder.findUnique({
         where: { id: parseInt(folderId) }
-      });
-
-      if (!folder) {
-        // Clean up uploaded files if folder validation fails
-        req.files?.forEach(file => {
-          fs.unlink(file.path, (err) => {
-            if (err) console.error('Error deleting file:', err);
-          });
-        });
+      });      if (!folder) {
+        // Clean up uploaded files if folder validation fails - files are already on Cloudinary
+        if (req.files) {
+          for (const file of req.files) {
+            try {
+              await cloudinary.uploader.destroy(file.filename);
+            } catch (cleanupError) {
+              console.error('Error deleting file from Cloudinary:', cleanupError);
+            }
+          }
+        }
         return res.status(400).json({ message: 'Folder not found' });
       }
 
       if (folder.ownerId !== ownerId) {
-        // Clean up uploaded files if folder ownership validation fails
-        req.files?.forEach(file => {
-          fs.unlink(file.path, (err) => {
-            if (err) console.error('Error deleting file:', err);
-          });
-        });
+        // Clean up uploaded files if folder ownership validation fails - files are already on Cloudinary
+        if (req.files) {
+          for (const file of req.files) {
+            try {
+              await cloudinary.uploader.destroy(file.filename);
+            } catch (cleanupError) {
+              console.error('Error deleting file from Cloudinary:', cleanupError);
+            }
+          }
+        }
         return res.status(403).json({ message: 'Access denied: You do not own this folder' });
       }
-    }
-
-    // Check if files were uploaded
+    }    // Check if files were uploaded
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: 'No files uploaded' });
     }
 
-    // Save file metadata to database
+    // Save file metadata to database - files are already uploaded to Cloudinary
     const savedFiles = [];
     
     for (const file of req.files) {
@@ -202,7 +205,8 @@ router.post('/upload', isAuthenticated, (req, res, next) => {
             name: file.originalname,
             mimetype: file.mimetype,
             size: file.size,
-            localPath: file.path,
+            cloudUrl: file.path, // Cloudinary URL
+            publicId: file.filename, // Cloudinary public ID for deletion
             ownerId,
             folderId: folderId ? parseInt(folderId) : null
           },
@@ -219,10 +223,12 @@ router.post('/upload', isAuthenticated, (req, res, next) => {
         });
       } catch (dbError) {
         console.error('Database save error for file:', file.originalname, dbError);
-        // Clean up the physical file if database save fails
-        fs.unlink(file.path, (err) => {
-          if (err) console.error('Error deleting file:', err);
-        });
+        // Clean up the Cloudinary file if database save fails
+        try {
+          await cloudinary.uploader.destroy(file.filename);
+        } catch (cleanupError) {
+          console.error('Error deleting file from Cloudinary:', cleanupError);
+        }
       }
     }
 
@@ -235,16 +241,19 @@ router.post('/upload', isAuthenticated, (req, res, next) => {
       files: savedFiles,
       uploadedCount: savedFiles.length,
       totalSize: savedFiles.reduce((sum, file) => sum + file.size, 0)
-    });
-  } catch (error) {
+    });  } catch (error) {
     console.error('File upload error:', error);
     
-    // Clean up any uploaded files on error
-    req.files?.forEach(file => {
-      fs.unlink(file.path, (err) => {
-        if (err) console.error('Error deleting file:', err);
-      });
-    });
+    // Clean up any uploaded files on error from Cloudinary
+    if (req.files) {
+      for (const file of req.files) {
+        try {
+          await cloudinary.uploader.destroy(file.filename);
+        } catch (cleanupError) {
+          console.error('Error deleting file from Cloudinary:', cleanupError);
+        }
+      }
+    }
 
     res.status(500).json({ message: 'Error uploading files', error: error.message });
   }
@@ -333,14 +342,21 @@ router.get('/:id', isAuthenticated, verifyFileOwnership, async (req, res) => {
       }
     });
 
-    // Check if file exists on filesystem
-    const fileExists = fs.existsSync(file.localPath);
+    // Generate different sized URLs for images
+    let thumbnails = {};
+    if (file.mimetype.startsWith('image/')) {
+      thumbnails = {
+        small: file.cloudUrl.replace('/upload/', '/upload/w_150,h_150,c_fill/'),
+        medium: file.cloudUrl.replace('/upload/', '/upload/w_300,h_300,c_fill/'),
+        large: file.cloudUrl.replace('/upload/', '/upload/w_600,h_600,c_fit/')
+      };
+    }
 
     res.json({
       file: {
         ...file,
         formattedSize: formatFileSize(file.size),
-        fileExists
+        thumbnails
       }
     });
 
@@ -355,24 +371,20 @@ router.get('/:id/download', isAuthenticated, verifyFileOwnership, async (req, re
   try {
     const file = req.file; // Set by verifyFileOwnership middleware
 
-    // Check if file exists on filesystem
-    if (!fs.existsSync(file.localPath)) {
-      return res.status(404).json({ message: 'File not found on server' });
-    }
+    // For direct download, we can either redirect to Cloudinary URL or add download flag
+    const downloadUrl = file.cloudUrl.includes('?') 
+      ? `${file.cloudUrl}&fl_attachment:${encodeURIComponent(file.name)}`
+      : `${file.cloudUrl}?fl_attachment:${encodeURIComponent(file.name)}`;
 
-    // Set appropriate headers
-    res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
-    res.setHeader('Content-Type', file.mimetype);
+    // Option 1: Redirect to Cloudinary URL with download flag
+    res.redirect(downloadUrl);
 
-    // Serve the file
-    res.download(file.localPath, file.name, (err) => {
-      if (err) {
-        console.error('File download error:', err);
-        if (!res.headersSent) {
-          res.status(500).json({ message: 'Error downloading file' });
-        }
-      }
-    });
+    // Option 2: Alternative - Return the download URL as JSON
+    // res.json({
+    //   downloadUrl: downloadUrl,
+    //   directUrl: file.cloudUrl,
+    //   fileName: file.name
+    // });
 
   } catch (error) {
     console.error('Download file error:', error);
@@ -469,14 +481,12 @@ router.delete('/:id', isAuthenticated, verifyFileOwnership, async (req, res) => 
       where: { id: fileId }
     });
 
-    // Then delete physical file
-    if (fs.existsSync(file.localPath)) {
-      fs.unlink(file.localPath, (err) => {
-        if (err) {
-          console.error('Error deleting physical file:', err);
-          // Don't fail the request as database deletion succeeded
-        }
-      });
+    // Then delete from Cloudinary
+    try {
+      await cloudinary.uploader.destroy(file.publicId);
+    } catch (cloudinaryError) {
+      console.error('Error deleting file from Cloudinary:', cloudinaryError);
+      // Don't fail the request as database deletion succeeded
     }
 
     res.json({

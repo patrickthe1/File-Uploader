@@ -44,7 +44,8 @@ model File {
   name      String
   mimetype  String
   size      Int
-  localPath String
+  cloudUrl  String
+  publicId  String
   folderId  Int?
   ownerId   Int
   createdAt DateTime @default(now())

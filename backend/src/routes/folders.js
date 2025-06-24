@@ -1,5 +1,6 @@
 import express from 'express';
 import fs from 'fs';
+import { v2 as cloudinary } from 'cloudinary';
 import { PrismaClient } from '@prisma/client';
 import { isAuthenticated } from './auth.js';
 
@@ -70,14 +71,12 @@ const deleteFolderRecursively = async (folderId, ownerId) => {
     where: { folderId: folderId, ownerId }
   });
 
-  // Delete physical files
+  // Delete files from Cloudinary
   for (const file of files) {
-    if (fs.existsSync(file.localPath)) {
-      try {
-        fs.unlinkSync(file.localPath);
-      } catch (err) {
-        console.error('Error deleting physical file:', err);
-      }
+    try {
+      await cloudinary.uploader.destroy(file.publicId);
+    } catch (err) {
+      console.error('Error deleting file from Cloudinary:', err);
     }
   }
 
