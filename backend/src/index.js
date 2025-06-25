@@ -42,10 +42,14 @@ app.use(passport.session());
 import authRoutes, { isAuthenticated } from './routes/auth.js';
 import folderRoutes from './routes/folders.js';
 import fileRoutes from './routes/files.js';
+import shareLinksRoutes from './routes/shareLinks.js';
+import shareRoutes from './routes/share.js';
 
 app.use('/auth', authRoutes);
 app.use('/api/folders', folderRoutes);
 app.use('/api/files', fileRoutes);
+app.use('/api', shareLinksRoutes);
+app.use('/share', shareRoutes);
 
 app.get('/', (req, res) => {
   res.send('Hello World!');
