@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { toast } from "@/hooks/use-toast"
 
 interface FileItem {
   id: number
@@ -29,6 +30,7 @@ interface ShareLink {
   folderId: number
   expiresAt: string
   createdAt: string
+  shareUrl?: string
   folder?: Folder
 }
 
@@ -39,21 +41,28 @@ interface FileState {
   shareLinks: ShareLink[]
   isLoading: boolean
   uploadProgress: { [key: string]: number }
+  navigationHistory: Folder[] // Track the navigation path
 
   // Actions
   loadFolder: (folderId?: number) => Promise<void>
   createFolder: (name: string, parentId?: number) => Promise<boolean>
+  renameFolder: (folderId: number, newName: string) => Promise<boolean>
   uploadFiles: (files: FileList, folderId?: number) => Promise<boolean>
   deleteFile: (fileId: number) => Promise<boolean>
   deleteFolder: (folderId: number) => Promise<boolean>
-  createShareLink: (folderId: number, duration?: string) => Promise<string | null>
+  createShareLink: (folderId: number, duration?: string) => Promise<ShareLink | null>
   loadShareLinks: () => Promise<void>
   deleteShareLink: (shareId: number) => Promise<boolean>
   moveFile: (fileId: number, newFolderId?: number) => Promise<boolean>
   moveFolder: (folderId: number, newParentId?: number) => Promise<boolean>
 }
 
-const API_BASE = "http://localhost:5000"
+// Read from env so we can change this without editing code.
+// Provide a sensible local default for development.
+const API_BASE =
+  typeof window !== "undefined"
+    ? ((process.env.NEXT_PUBLIC_API_BASE_URL as string | undefined) ?? "http://localhost:5000")
+    : ((process.env.NEXT_PUBLIC_API_BASE_URL as string | undefined) ?? "http://localhost:5000")
 
 export const useFileStore = create<FileState>((set, get) => ({
   currentFolder: null,
@@ -62,30 +71,63 @@ export const useFileStore = create<FileState>((set, get) => ({
   shareLinks: [], // Ensure this is always initialized as an empty array
   isLoading: false,
   uploadProgress: {},
+  navigationHistory: [],
 
   loadFolder: async (folderId?: number) => {
     set({ isLoading: true })
     try {
       const url = folderId
-        ? `${API_BASE}/api/folders/${folderId}?includeContents=true`
-        : `${API_BASE}/api/folders?includeChildren=true`
+        ? `${API_BASE}/api/folders/${folderId}?includeChildren=true&includeFiles=true`
+        : `${API_BASE}/api/folders?parentId=null`
 
       const response = await fetch(url, { credentials: "include" })
 
       if (response.ok) {
         const data = await response.json()
+        console.log("API Response Data:", data);
 
         if (folderId) {
-          // Make sure we always set arrays for files and folders
-          const files = Array.isArray(data.files) ? data.files : [];
-          const subfolders = Array.isArray(data.subfolders) ? data.subfolders : 
-                           (data.children ? Array.isArray(data.children) ? data.children : [] : []);
+          // The API returns { folder: {...} } for specific folder requests
+          const folderData = data.folder || data;
+          console.log("Folder data:", folderData);
           
-          set({ currentFolder: data, files: files, folders: subfolders })
+          // Get files directly from the folder object
+          const files = Array.isArray(folderData.files) ? folderData.files : [];
+          
+          // Get subfolders (children) from the folder object
+          const subfolders = Array.isArray(folderData.children) ? folderData.children : [];
+          
+          // Update navigation history
+          const currentHistory = get().navigationHistory;
+          let newHistory = [...currentHistory];
+          
+          // Check if this folder is already in history (going back)
+          const existingIndex = newHistory.findIndex(f => f.id === folderData.id);
+          if (existingIndex >= 0) {
+            // Going back - trim history to this point
+            newHistory = newHistory.slice(0, existingIndex + 1);
+          } else {
+            // Going forward - add to history
+            newHistory.push(folderData);
+          }
+          
+          console.log("Setting folder contents:", { folder: folderData, files, subfolders });
+          set({ 
+            currentFolder: folderData, 
+            files: files, 
+            folders: subfolders,  // These are the subfolders within the current folder
+            navigationHistory: newHistory
+          })
         } else {
-          // Ensure we're setting an array for folders
-          const folders = Array.isArray(data) ? data : [];
-          set({ folders: folders, files: [], currentFolder: null })
+          // For root folder listing - reset navigation history
+          console.log("Root folder data type:", typeof data, Array.isArray(data));
+          
+          // The API returns { folders: [...] } for root requests
+          const folders = Array.isArray(data) ? data : 
+                         (data.folders && Array.isArray(data.folders) ? data.folders : []);
+          
+          console.log("Setting root folders:", folders);
+          set({ folders: folders, files: [], currentFolder: null, navigationHistory: [] })
         }
       }
     } catch (error) {
@@ -105,12 +147,70 @@ export const useFileStore = create<FileState>((set, get) => ({
       })
 
       if (response.ok) {
-        await get().loadFolder(parentId)
+        // Reload the current folder view to show the new folder
+        const currentFolderId = get().currentFolder?.id
+        await get().loadFolder(currentFolderId)
+        
+        toast({
+          title: "Success",
+          description: `Folder "${name}" created successfully.`,
+        })
         return true
+      } else {
+        const error = await response.json()
+        toast({
+          title: "Error",
+          description: error.message || "Failed to create folder.",
+          variant: "destructive",
+        })
       }
       return false
     } catch (error) {
       console.error("Create folder error:", error)
+      toast({
+        title: "Error",
+        description: "Failed to create folder. Please try again.",
+        variant: "destructive",
+      })
+      return false
+    }
+  },
+
+  renameFolder: async (folderId: number, newName: string) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/folders/${folderId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name: newName }),
+      })
+
+      if (response.ok) {
+        // Reload the current folder view to show the updated folder
+        const currentFolderId = get().currentFolder?.id
+        await get().loadFolder(currentFolderId)
+        
+        toast({
+          title: "Success",
+          description: `Folder renamed to "${newName}" successfully.`,
+        })
+        return true
+      } else {
+        const error = await response.json()
+        toast({
+          title: "Error",
+          description: error.message || "Failed to rename folder.",
+          variant: "destructive",
+        })
+      }
+      return false
+    } catch (error) {
+      console.error("Rename folder error:", error)
+      toast({
+        title: "Error",
+        description: "Failed to rename folder. Please try again.",
+        variant: "destructive",
+      })
       return false
     }
   },
@@ -178,6 +278,7 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   createShareLink: async (folderId: number, duration = "7d") => {
     try {
+      console.log(`Creating share link for folder ID: ${folderId} with duration: ${duration}`);
       const response = await fetch(`${API_BASE}/api/folders/${folderId}/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -185,15 +286,32 @@ export const useFileStore = create<FileState>((set, get) => ({
         body: JSON.stringify({ duration }),
       })
 
-      if (response.ok) {
-        const shareLink = await response.json()
-        await get().loadShareLinks()
-        return shareLink.token
+      if (!response.ok) {
+        console.error("Share link creation failed with status:", response.status);
+        const errorText = await response.text();
+        console.error("Error response:", errorText);
+        throw new Error(`Failed to create share link: ${response.statusText}`);
       }
-      return null
+
+      const data = await response.json();
+      console.log("Share link response:", data);
+      
+      // Load the share links into the store
+      await get().loadShareLinks();
+      
+      // Return the shareLink object with all its properties
+      if (data && data.shareLink) {
+        return {
+          ...data.shareLink,
+          // Ensure we have a shareUrl by constructing it if it's not present
+          shareUrl: data.shareLink.shareUrl || `${window.location.origin}/share/${data.shareLink.token}`
+        };
+      } else {
+        throw new Error("Invalid response format from server");
+      }
     } catch (error) {
-      console.error("Create share link error:", error)
-      return null
+      console.error("Create share link error:", error);
+      throw error; // Re-throw to allow the component to handle it
     }
   },
 

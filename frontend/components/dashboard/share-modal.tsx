@@ -6,6 +6,7 @@ import { X, Share2, Copy, CheckCircle } from "lucide-react"
 import { useFileStore } from "@/lib/stores/file-store"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useToast } from "@/hooks/use-toast"
 
 interface ShareModalProps {
   folderId: number | null
@@ -14,6 +15,7 @@ interface ShareModalProps {
 
 export function ShareModal({ folderId, onClose }: ShareModalProps) {
   const { createShareLink } = useFileStore()
+  const { toast } = useToast()
   const [duration, setDuration] = useState("7d")
   const [shareUrl, setShareUrl] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -23,20 +25,93 @@ export function ShareModal({ folderId, onClose }: ShareModalProps) {
     if (!folderId) return
 
     setIsLoading(true)
-    const token = await createShareLink(folderId, duration)
+    try {
+      // Clear any previous URL
+      setShareUrl("")
+      setCopied(false)
+      
+      console.log("Creating share link for folder ID:", folderId, "with duration:", duration);
+      
+      // Call the store method to create the share link
+      const shareLink = await createShareLink(folderId, duration)
+      console.log("Share link result:", JSON.stringify(shareLink, null, 2));
 
-    if (token) {
-      setShareUrl(`${window.location.origin}/share/${token}`)
+      // Check the exact structure of the returned object
+      if (shareLink) {
+        console.log("Share link keys:", Object.keys(shareLink));
+        console.log("Has token:", !!shareLink.token);
+        console.log("Has shareUrl:", !!shareLink.shareUrl);
+      }
+
+      if (shareLink && shareLink.token) {
+        // Get the share URL - this should always be present now
+        const url = shareLink.shareUrl || `${window.location.origin}/share/${shareLink.token}`;
+        console.log("Setting share URL:", url);
+        setShareUrl(url);
+        
+        // Show a toast notification
+        toast({
+          title: "Share Link Created Successfully",
+          description: "Your share link is ready to use.",
+          variant: "default",
+        })
+        
+        // Try to copy the URL to clipboard automatically
+        try {
+          await navigator.clipboard.writeText(url)
+          setCopied(true)
+          toast({
+            title: "Link Copied to Clipboard",
+            description: "You can paste it anywhere to share your folder.",
+          })
+        } catch (clipboardError) {
+          console.error("Clipboard error:", clipboardError)
+          // Don't show another toast for clipboard failure to avoid toast overload
+        }
+      } else {
+        throw new Error("Invalid share link response")
+      }
+    } catch (error) {
+      console.error("Share link error:", error)
+      toast({
+        title: "Error Creating Share Link",
+        description: error instanceof Error ? error.message : "Could not create share link. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
     }
-
-    setIsLoading(false)
   }
 
   const handleCopy = async () => {
     if (shareUrl) {
-      await navigator.clipboard.writeText(shareUrl)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      try {
+        await navigator.clipboard.writeText(shareUrl)
+        setCopied(true)
+        
+        // Visual feedback - reset the copied state after 2 seconds
+        setTimeout(() => setCopied(false), 2000)
+        
+        // Show a toast notification
+        toast({
+          title: "Link Copied Successfully",
+          description: "Share link copied to clipboard",
+          variant: "default",
+        })
+      } catch (error) {
+        console.error("Failed to copy:", error)
+        toast({
+          title: "Copy Failed",
+          description: "Could not copy to clipboard. Try selecting the link and using Ctrl+C instead.",
+          variant: "destructive",
+        })
+      }
+    } else {
+      toast({
+        title: "No Link Available",
+        description: "Create a share link first before copying.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -46,11 +121,36 @@ export function ShareModal({ folderId, onClose }: ShareModalProps) {
     onClose()
   }
 
+  // Load the share link when the modal opens
   useEffect(() => {
     if (folderId && !shareUrl) {
       handleCreateLink()
     }
   }, [folderId])
+  
+  // Automatically try to copy the link again when shareUrl changes
+  useEffect(() => {
+    const copyToClipboard = async () => {
+      if (shareUrl && !copied) {
+        try {
+          await navigator.clipboard.writeText(shareUrl)
+          setCopied(true)
+          console.log("Link copied to clipboard via useEffect")
+          toast({
+            title: "Link Copied to Clipboard",
+            description: "The share link has been copied to your clipboard.",
+          })
+        } catch (error) {
+          console.error("Failed to copy to clipboard via useEffect:", error)
+        }
+      }
+    }
+    
+    if (shareUrl) {
+      copyToClipboard()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shareUrl])
 
   return (
     <AnimatePresence>
@@ -104,21 +204,50 @@ export function ShareModal({ folderId, onClose }: ShareModalProps) {
               </div>
 
               {shareUrl && (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }} 
+                  animate={{ opacity: 1, y: 0 }} 
+                  className="space-y-3"
+                >
+                  {/* Success indicator with animation */}
+                  <motion.div
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: "spring", duration: 0.5 }}
+                    className="bg-green-500/10 p-3 rounded-lg mb-4 border border-green-500/30"
+                  >
+                    <div className="flex items-center">
+                      <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center mr-3">
+                        <CheckCircle className="w-5 h-5 text-green-500" />
+                      </div>
+                      <div>
+                        <h3 className="font-medium text-green-400">Share Link Generated!</h3>
+                        <p className="text-xs text-green-300/70 mt-1">
+                          Link {copied ? "copied to clipboard" : "ready to share"}
+                        </p>
+                      </div>
+                    </div>
+                  </motion.div>
+                  
                   <label className="block text-sm font-medium text-gray-300">Share Link</label>
                   <div className="flex items-center space-x-2">
-                    <div className="flex-1 bg-gray-800 border border-gray-700 rounded-lg p-3 text-sm text-gray-300 font-mono break-all">
+                    <div className="flex-1 bg-gray-800 border-2 border-blue-500/30 rounded-lg p-3 text-sm text-blue-200 font-mono break-all">
                       {shareUrl}
                     </div>
-                    <Button onClick={handleCopy} size="sm" className="bg-gray-700 hover:bg-gray-600 text-white">
-                      {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    <Button 
+                      onClick={handleCopy} 
+                      size="icon"
+                      className={`${copied 
+                        ? "bg-green-600 hover:bg-green-700" 
+                        : "bg-blue-600 hover:bg-blue-700"} text-white h-10 w-10 transition-colors`}
+                    >
+                      {copied ? <CheckCircle className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
                     </Button>
                   </div>
-                  {copied && (
-                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm text-green-400">
-                      Link copied to clipboard!
-                    </motion.p>
-                  )}
+                  <p className="text-xs text-gray-400">
+                    Share this link with others to give them access to this folder. 
+                    The link will expire according to the settings you chose.
+                  </p>
                 </motion.div>
               )}
 

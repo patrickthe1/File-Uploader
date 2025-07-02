@@ -9,6 +9,7 @@ import { FileGrid } from "@/components/dashboard/file-grid"
 import { Breadcrumbs } from "@/components/dashboard/breadcrumbs"
 import { UploadZone } from "@/components/dashboard/upload-zone"
 import { CreateFolderModal } from "@/components/dashboard/create-folder-modal"
+import { RenameFolderModal } from "@/components/dashboard/rename-folder-modal"
 import { ShareModal } from "@/components/dashboard/share-modal"
 import { FilePreviewModal } from "@/components/dashboard/file-preview-modal"
 import { useRouter } from "next/navigation"
@@ -16,17 +17,45 @@ import { useRouter } from "next/navigation"
 export default function DashboardPage() {
   const router = useRouter()
   const { user } = useAuthStore()
-  const { loadFolder, currentFolder, isLoading } = useFileStore()
+  const { loadFolder, currentFolder, isLoading, renameFolder: renameFolderAction } = useFileStore()
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [showShare, setShowShare] = useState<number | null>(null)
   const [previewFile, setPreviewFile] = useState<any>(null)
+  const [renameFolder, setRenameFolder] = useState<{ id: number; name: string } | null>(null)
+
+  const handleRenameFolder = (folderId: number, currentName: string) => {
+    setRenameFolder({ id: folderId, name: currentName })
+  }
+
+  const handleRename = async (folderId: number, newName: string): Promise<boolean> => {
+    try {
+      await renameFolderAction(folderId, newName)
+      return true
+    } catch (error) {
+      console.error('Failed to rename folder:', error)
+      return false
+    }
+  }
 
   useEffect(() => {
     if (!user) {
       router.push("/auth/login")
       return
     }
-    loadFolder()
+    
+    console.log("Dashboard - Loading folders");
+    
+    // Load the root folder (no ID means root)
+    const loadRootFolder = async () => {
+      try {
+        await loadFolder();
+        console.log("Dashboard - Folders loaded");
+      } catch (error) {
+        console.error("Error loading folders:", error);
+      }
+    };
+    
+    loadRootFolder();
   }, [user, router, loadFolder])
 
   if (!user) return null
@@ -76,7 +105,11 @@ export default function DashboardPage() {
               </motion.div>
             ) : (
               <motion.div key="content" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <FileGrid onShareFolder={setShowShare} onPreviewFile={setPreviewFile} />
+                <FileGrid 
+                  onShareFolder={setShowShare} 
+                  onPreviewFile={setPreviewFile}
+                  onRenameFolder={handleRenameFolder}
+                />
               </motion.div>
             )}
           </AnimatePresence>
@@ -84,6 +117,13 @@ export default function DashboardPage() {
       </main>
 
       <CreateFolderModal isOpen={showCreateFolder} onClose={() => setShowCreateFolder(false)} />
+
+      <RenameFolderModal 
+        folderId={renameFolder?.id || null}
+        currentName={renameFolder?.name || ""}
+        onClose={() => setRenameFolder(null)}
+        onRename={handleRename}
+      />
 
       <ShareModal folderId={showShare} onClose={() => setShowShare(null)} />
 

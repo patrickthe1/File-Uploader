@@ -14,18 +14,22 @@ import {
   Download,
   Trash2,
   Eye,
+  Edit,
 } from "lucide-react"
 import { useFileStore } from "@/lib/stores/file-store"
 import { formatFileSize, formatDate } from "@/lib/utils"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { useToast } from "@/hooks/use-toast"
 
 interface FileGridProps {
   onShareFolder: (folderId: number) => void
   onPreviewFile: (file: any) => void
+  onRenameFolder: (folderId: number, currentName: string) => void
 }
 
-export function FileGrid({ onShareFolder, onPreviewFile }: FileGridProps) {
-  const { folders, files, loadFolder, deleteFile, deleteFolder, currentFolder } = useFileStore()
+export function FileGrid({ onShareFolder, onPreviewFile, onRenameFolder }: FileGridProps) {
+  const { folders, files, loadFolder, deleteFile, deleteFolder, renameFolder, currentFolder } = useFileStore()
+  const { toast } = useToast()
 
   const getFileIcon = (mimetype: string) => {
     if (mimetype.startsWith("image/")) return ImageIcon
@@ -40,25 +44,69 @@ export function FileGrid({ onShareFolder, onPreviewFile }: FileGridProps) {
     return mimetype.startsWith("image/") || mimetype.includes("pdf") || mimetype.startsWith("text/")
   }
 
+  const handleRenameFolder = async (folderId: number, currentName: string) => {
+    const newName = prompt("Enter new folder name:", currentName)
+    if (newName && newName.trim() && newName.trim() !== currentName) {
+      const success = await renameFolder(folderId, newName.trim())
+      if (success) {
+        toast({
+          title: "Folder Renamed",
+          description: `Folder renamed to "${newName.trim()}".`,
+        })
+      } else {
+        toast({
+          title: "Rename Failed",
+          description: "Could not rename folder. Please try again.",
+          variant: "destructive",
+        })
+      }
+    }
+  }
+  const API_BASE =
+    typeof window !== "undefined"
+      ? ((process.env.NEXT_PUBLIC_API_BASE_URL as string | undefined) ?? "http://localhost:5000")
+      : ((process.env.NEXT_PUBLIC_API_BASE_URL as string | undefined) ?? "http://localhost:5000")
+
   const handleDownload = async (fileId: number, fileName: string) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/files/${fileId}/download`, {
-        credentials: "include",
+      toast({
+        title: "Starting Download...",
+        description: `Preparing ${fileName} for download`,
+      })
+      
+      // Use fetch with credentials to get the file URL and download
+      const response = await fetch(`${API_BASE}/api/files/${fileId}/download`, {
+        method: "GET",
+        credentials: "include", // Include cookies for authentication
       })
 
       if (response.ok) {
+        // Create blob from response and download
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = fileName
-        document.body.appendChild(a)
-        a.click()
+        const link = document.createElement("a")
+        link.href = url
+        link.download = fileName
+        link.style.display = "none"
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
         window.URL.revokeObjectURL(url)
-        document.body.removeChild(a)
+        
+        toast({
+          title: "Download Complete",
+          description: `${fileName} has been downloaded.`,
+        })
+      } else {
+        throw new Error(`Download failed with status: ${response.status}`)
       }
     } catch (error) {
       console.error("Download error:", error)
+      toast({
+        title: "Download Failed",
+        description: "Could not download the file. Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -81,6 +129,13 @@ export function FileGrid({ onShareFolder, onPreviewFile }: FileGridProps) {
   const folderArray = Array.isArray(folders) ? folders : [];
   const fileArray = Array.isArray(files) ? files : [];
   
+  // Add debugging information
+  console.log("FileGrid Rendering - Raw folders:", folders);
+  console.log("FileGrid Rendering - Raw files:", files);
+  console.log("FileGrid Rendering - Processed folders:", folderArray);
+  console.log("FileGrid Rendering - Processed files:", fileArray);
+  console.log("FileGrid Rendering - Current folder:", currentFolder);
+  
   if (folderArray.length === 0 && fileArray.length === 0) {
     return (
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center py-12">
@@ -89,6 +144,18 @@ export function FileGrid({ onShareFolder, onPreviewFile }: FileGridProps) {
         </div>
         <h3 className="text-xl font-medium text-gray-300 mb-2">No files yet</h3>
         <p className="text-gray-500">Upload your first files or create a folder to get started</p>
+        
+        {currentFolder && (
+          <button 
+            onClick={() => {
+              console.log("Manual reload of folder:", currentFolder.id);
+              loadFolder(currentFolder.id);
+            }}
+            className="mt-4 bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 transition-colors"
+          >
+            Reload Contents
+          </button>
+        )}
       </motion.div>
     )
   }
@@ -124,6 +191,16 @@ export function FileGrid({ onShareFolder, onPreviewFile }: FileGridProps) {
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation()
+                    onRenameFolder(folder.id, folder.name)
+                  }}
+                  className="text-gray-300 hover:text-white hover:bg-gray-700"
+                >
+                  <Edit className="w-4 h-4 mr-2" />
+                  Rename
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation()
                     onShareFolder(folder.id)
                   }}
                   className="text-gray-300 hover:text-white hover:bg-gray-700"
@@ -134,7 +211,20 @@ export function FileGrid({ onShareFolder, onPreviewFile }: FileGridProps) {
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation()
-                    deleteFolder(folder.id)
+                    deleteFolder(folder.id).then((success) => {
+                      if (success) {
+                        toast({
+                          title: "Folder Deleted",
+                          description: `"${folder.name}" has been deleted.`,
+                        })
+                      } else {
+                        toast({
+                          title: "Delete Failed",
+                          description: "Could not delete folder. Please try again.",
+                          variant: "destructive",
+                        })
+                      }
+                    })
                   }}
                   className="text-red-400 hover:text-red-300 hover:bg-gray-700"
                 >
@@ -185,7 +275,22 @@ export function FileGrid({ onShareFolder, onPreviewFile }: FileGridProps) {
                     Download
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => deleteFile(file.id)}
+                    onClick={() => {
+                      deleteFile(file.id).then((success) => {
+                        if (success) {
+                          toast({
+                            title: "File Deleted",
+                            description: `"${file.name}" has been deleted.`,
+                          })
+                        } else {
+                          toast({
+                            title: "Delete Failed",
+                            description: "Could not delete file. Please try again.",
+                            variant: "destructive",
+                          })
+                        }
+                      })
+                    }}
                     className="text-red-400 hover:text-red-300 hover:bg-gray-700"
                   >
                     <Trash2 className="w-4 h-4 mr-2" />

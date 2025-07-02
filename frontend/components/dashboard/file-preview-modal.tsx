@@ -3,6 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion"
 import { X, Download, FileText, ImageIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useToast } from "@/hooks/use-toast"
 
 interface FilePreviewModalProps {
   file: any
@@ -10,25 +11,42 @@ interface FilePreviewModalProps {
 }
 
 export function FilePreviewModal({ file, onClose }: FilePreviewModalProps) {
-  const handleDownload = async () => {
+  const { toast } = useToast()
+  // Use the API_BASE variable instead of hardcoded URL
+  const API_BASE = typeof window !== "undefined"
+    ? ((process.env.NEXT_PUBLIC_API_BASE_URL as string | undefined) ?? "http://localhost:5000")
+    : ((process.env.NEXT_PUBLIC_API_BASE_URL as string | undefined) ?? "http://localhost:5000")
+    
+  const handleDownload = () => {
     try {
-      const response = await fetch(`http://localhost:5000/api/files/${file.id}/download`, {
-        credentials: "include",
+      toast({
+        title: "Starting Download...",
+        description: `Preparing ${file.name} for download`,
       })
-
-      if (response.ok) {
-        const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = file.name
-        document.body.appendChild(a)
-        a.click()
-        window.URL.revokeObjectURL(url)
-        document.body.removeChild(a)
-      }
+      
+      // Create a form to submit the download request
+      // This ensures cookies/credentials are properly sent with the request
+      const form = document.createElement("form")
+      form.method = "GET"
+      form.action = `${API_BASE}/api/files/${file.id}/download`
+      form.target = "_blank"
+      form.style.display = "none"
+      
+      // Append the form to the document and submit
+      document.body.appendChild(form)
+      form.submit()
+      
+      // Remove the form after a short delay
+      setTimeout(() => {
+        document.body.removeChild(form)
+      }, 1000)
     } catch (error) {
       console.error("Download error:", error)
+      toast({
+        title: "Download Failed",
+        description: "Could not download the file. Please try again.",
+        variant: "destructive",
+      })
     }
   }
 

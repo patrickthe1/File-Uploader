@@ -371,24 +371,76 @@ router.get('/:id/download', isAuthenticated, verifyFileOwnership, async (req, re
   try {
     const file = req.file; // Set by verifyFileOwnership middleware
 
-    // For direct download, we can either redirect to Cloudinary URL or add download flag
-    const downloadUrl = file.cloudUrl.includes('?') 
-      ? `${file.cloudUrl}&fl_attachment:${encodeURIComponent(file.name)}`
-      : `${file.cloudUrl}?fl_attachment:${encodeURIComponent(file.name)}`;
+    // Log the Cloudinary URL for debugging
+    console.log(`Downloading file: ${file.name}, Cloudinary URL: ${file.cloudUrl}`);
+    console.log(`File mimetype: ${file.mimetype}, publicId: ${file.publicId}`);
 
-    // Option 1: Redirect to Cloudinary URL with download flag
-    res.redirect(downloadUrl);
+    // For PDFs and other non-image files, try to generate a proper Cloudinary URL
+    // PDFs might need different URL structure than images
+    let downloadUrl = file.cloudUrl;
+    
+    // If it's a PDF or other document, try different URL patterns
+    if (file.mimetype === 'application/pdf') {
+      // Try to construct the URL as raw resource type
+      const publicId = file.publicId;
+      const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+      
+      // Try different URL formats for PDFs
+      const rawUrl = `https://res.cloudinary.com/${cloudName}/raw/upload/${publicId}.pdf`;
+      const imageUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
+      
+      console.log(`Trying PDF URLs - Raw: ${rawUrl}, Image: ${imageUrl}`);
+      
+      // Use the raw URL for PDFs
+      downloadUrl = rawUrl;
+    }
 
-    // Option 2: Alternative - Return the download URL as JSON
-    // res.json({
-    //   downloadUrl: downloadUrl,
-    //   directUrl: file.cloudUrl,
-    //   fileName: file.name
-    // });
-
+    // Add attachment flag for download
+    const finalDownloadUrl = downloadUrl.includes('?') 
+      ? `${downloadUrl}&fl_attachment`
+      : `${downloadUrl}?fl_attachment`;
+    
+    console.log(`Final download URL: ${finalDownloadUrl}`);
+    
+    try {
+      // Set appropriate headers for download
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.name)}"`);
+      res.setHeader('Content-Type', file.mimetype || 'application/octet-stream');
+      
+      // Try to proxy the file
+      const axios = await import('axios');
+      const response = await axios.default.get(finalDownloadUrl, {
+        responseType: 'stream',
+        maxRedirects: 5,
+        timeout: 30000,
+        headers: {
+          'Cache-Control': 'no-cache',
+          'User-Agent': 'Node.js Server'
+        }
+      });
+      
+      // Pipe the response directly to the client
+      response.data.pipe(res);
+      
+    } catch (proxyError) {
+      console.error('Error proxying file from Cloudinary:', proxyError.message);
+      console.error('Response status:', proxyError.response?.status);
+      console.error('Response data:', proxyError.response?.data);
+      
+      // If the proxy fails, try redirecting the user directly to Cloudinary
+      if (!res.headersSent) {
+        console.log('Falling back to redirect approach');
+        return res.redirect(finalDownloadUrl);
+      } else {
+        console.error('Headers already sent, ending response');
+        res.end();
+      }
+    }
   } catch (error) {
     console.error('Download file error:', error);
-    res.status(500).json({ message: 'Error downloading file', error: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Error downloading file', error: error.message });
+    }
   }
 });
 

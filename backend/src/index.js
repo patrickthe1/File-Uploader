@@ -5,16 +5,22 @@ import { PrismaSessionStore } from '@quixo3/prisma-session-store';
 import { PrismaClient } from '@prisma/client';
 import passport from 'passport';
 import initializePassport from './config/passport.js';
+import cors from 'cors';
+
 
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 5000;
 const prisma = new PrismaClient();
 
 initializePassport(passport);
 
 // Middleware
+app.use(cors({
+  origin: ['https://preview--vibe-vault-flow.lovable.app', 'http://localhost:3000'],
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(

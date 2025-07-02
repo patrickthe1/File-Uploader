@@ -5,20 +5,7 @@ import { ChevronRight, Home } from "lucide-react"
 import { useFileStore } from "@/lib/stores/file-store"
 
 export function Breadcrumbs() {
-  const { currentFolder, loadFolder } = useFileStore()
-
-  const getBreadcrumbPath = (folder: any): any[] => {
-    if (!folder) return []
-    const path = []
-    let current = folder
-    while (current) {
-      path.unshift(current)
-      current = current.parent
-    }
-    return path
-  }
-
-  const breadcrumbs = getBreadcrumbPath(currentFolder)
+  const { currentFolder, navigationHistory, loadFolder } = useFileStore()
 
   return (
     <motion.nav
@@ -34,7 +21,7 @@ export function Breadcrumbs() {
         Home
       </button>
 
-      {breadcrumbs.map((folder, index) => (
+      {navigationHistory.map((folder, index) => (
         <motion.div
           key={folder.id}
           initial={{ opacity: 0, x: -10 }}

@@ -1,67 +1,46 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { X, Folder, Plus } from "lucide-react"
-import { useFileStore } from "@/lib/stores/file-store"
+import { X, Edit, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { useToast } from "@/hooks/use-toast"
 
-interface CreateFolderModalProps {
-  isOpen: boolean
+interface RenameFolderModalProps {
+  folderId: number | null
+  currentName: string
   onClose: () => void
+  onRename: (folderId: number, newName: string) => Promise<boolean>
 }
 
-export function CreateFolderModal({ isOpen, onClose }: CreateFolderModalProps) {
-  const { createFolder, currentFolder } = useFileStore()
-  const { toast } = useToast()
-  const [name, setName] = useState("")
+export function RenameFolderModal({ folderId, currentName, onClose, onRename }: RenameFolderModalProps) {
+  const [name, setName] = useState(currentName)
   const [isLoading, setIsLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim()) return
+    if (!name.trim() || !folderId || name.trim() === currentName) return
 
     setIsLoading(true)
     try {
-      const success = await createFolder(name.trim(), currentFolder?.id)
-
+      const success = await onRename(folderId, name.trim())
       if (success) {
-        toast({
-          title: "Folder Created Successfully",
-          description: `"${name.trim()}" has been created.`,
-        })
-        setName("")
         onClose()
-      } else {
-        toast({
-          title: "Failed to Create Folder",
-          description: "Could not create folder. Please try again.",
-          variant: "destructive",
-        })
       }
-    } catch (error) {
-      toast({
-        title: "Error Creating Folder",
-        description: "An unexpected error occurred. Please try again.",
-        variant: "destructive",
-      })
     } finally {
       setIsLoading(false)
     }
   }
 
   const handleClose = () => {
-    setName("")
+    setName(currentName)
     onClose()
   }
 
   return (
     <AnimatePresence>
-      {isOpen && (
+      {folderId && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -79,10 +58,10 @@ export function CreateFolderModal({ isOpen, onClose }: CreateFolderModalProps) {
           >
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-lg flex items-center justify-center">
-                  <Folder className="w-5 h-5 text-purple-400" />
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-500/20 to-cyan-500/20 rounded-lg flex items-center justify-center">
+                  <Edit className="w-5 h-5 text-blue-400" />
                 </div>
-                <h2 className="text-xl font-semibold text-white">Create New Folder</h2>
+                <h2 className="text-xl font-semibold text-white">Rename Folder</h2>
               </div>
               <button onClick={handleClose} className="text-gray-400 hover:text-white transition-colors p-1">
                 <X className="w-5 h-5" />
@@ -96,8 +75,8 @@ export function CreateFolderModal({ isOpen, onClose }: CreateFolderModalProps) {
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Enter folder name"
-                  className="bg-gray-800 border-gray-700 text-white placeholder-gray-400 focus:border-purple-500 focus:ring-purple-500/20"
+                  placeholder="Enter new folder name"
+                  className="bg-gray-800 border-gray-700 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500/20"
                   autoFocus
                   required
                 />
@@ -114,8 +93,8 @@ export function CreateFolderModal({ isOpen, onClose }: CreateFolderModalProps) {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={isLoading || !name.trim()}
-                  className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white"
+                  disabled={isLoading || !name.trim() || name.trim() === currentName}
+                  className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white"
                 >
                   {isLoading ? (
                     <motion.div
@@ -124,9 +103,9 @@ export function CreateFolderModal({ isOpen, onClose }: CreateFolderModalProps) {
                       className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full mr-2"
                     />
                   ) : (
-                    <Plus className="w-4 h-4 mr-2" />
+                    <Check className="w-4 h-4 mr-2" />
                   )}
-                  Create Folder
+                  Rename
                 </Button>
               </div>
             </form>
