@@ -60,9 +60,9 @@ export default function SharePage() {
       const response = await fetch(url)
 
       if (response.ok) {
-        const data = await response.json()
-        setFolder(data)
-        setError("")
+        const data = await response.json();
+        setFolder(data.folder); // Correctly access the nested folder object
+        setError("");
       } else {
         setError("Share link not found or expired")
       }

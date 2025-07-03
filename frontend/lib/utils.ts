@@ -35,3 +35,36 @@ export function formatDate(dateString: string): string {
     return date.toLocaleDateString()
   }
 }
+
+export function formatExpiryDate(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffInSeconds = Math.floor((date.getTime() - now.getTime()) / 1000);
+
+  if (diffInSeconds <= 0) {
+    return "Expired";
+  }
+
+  const days = Math.floor(diffInSeconds / 86400);
+  if (days > 1) {
+    return `in ${days} days`;
+  }
+  if (days === 1) {
+    return `in 1 day`;
+  }
+
+  const hours = Math.floor(diffInSeconds / 3600);
+  if (hours > 1) {
+    return `in ${hours} hours`;
+  }
+  if (hours === 1) {
+    return `in 1 hour`;
+  }
+
+  const minutes = Math.floor(diffInSeconds / 60);
+  if (minutes > 1) {
+    return `in ${minutes} minutes`;
+  }
+
+  return "in less than a minute";
+}

@@ -107,15 +107,10 @@ router.post('/folders/:id/share', isAuthenticated, async (req, res) => {
       }
     });
 
-    // Generate the full shareable URL
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const shareUrl = `${baseUrl}/share/${token}`;
-
     res.status(201).json({
       message: 'Share link created successfully',
       shareLink: {
         ...shareLink,
-        shareUrl,
         folder: {
           id: folder.id,
           name: folder.name

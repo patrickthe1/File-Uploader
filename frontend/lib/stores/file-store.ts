@@ -339,10 +339,10 @@ export const useFileStore = create<FileState>((set, get) => ({
       })
 
       if (response.ok) {
-        const data = await response.json()
-        // Ensure shareLinks is always an array
-        const shareLinks = Array.isArray(data) ? data : [];
-        set({ shareLinks })
+        const data = await response.json();
+        // The API returns { shareLinks: [...] }, so we need to access that property
+        const shareLinks = Array.isArray(data.shareLinks) ? data.shareLinks : [];
+        set({ shareLinks });
       }
     } catch (error) {
       console.error("Load share links error:", error)

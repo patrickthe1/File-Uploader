@@ -44,9 +44,8 @@ export function ShareModal({ folderId, onClose }: ShareModalProps) {
       }
 
       if (shareLink && shareLink.token) {
-        // Get the share URL - this should always be present now
-        const url = shareLink.shareUrl || `${window.location.origin}/share/${shareLink.token}`;
-        console.log("Setting share URL:", url);
+        // Construct the URL on the frontend
+        const url = `${window.location.origin}/share/${shareLink.token}`;
         setShareUrl(url);
         
         // Show a toast notification

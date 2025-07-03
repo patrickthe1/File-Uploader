@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { X, Share2, Copy, Trash2, ExternalLink, Calendar } from "lucide-react"
 import { useFileStore } from "@/lib/stores/file-store"
 import { Button } from "@/components/ui/button"
-import { formatDate } from "@/lib/utils"
+import { formatExpiryDate } from "@/lib/utils";
 
 interface ShareLinksModalProps {
   isOpen: boolean
@@ -22,9 +22,9 @@ export function ShareLinksModal({ isOpen, onClose }: ShareLinksModalProps) {
   }, [isOpen, loadShareLinks])
 
   const handleCopy = async (token: string) => {
-    const url = `${window.location.origin}/share/${token}`
-    await navigator.clipboard.writeText(url)
-  }
+    const url = `${window.location.origin}/share/${token}`;
+    await navigator.clipboard.writeText(url);
+  };
 
   const handleDelete = async (shareId: number) => {
     await deleteShareLink(shareId)
@@ -90,7 +90,7 @@ export function ShareLinksModal({ isOpen, onClose }: ShareLinksModalProps) {
                             <div className="flex items-center">
                               <Calendar className="w-4 h-4 mr-1" />
                               <span>
-                                {isExpired(link.expiresAt) ? "Expired" : "Expires"} {formatDate(link.expiresAt)}
+                                {isExpired(link.expiresAt) ? "Expired" : "Expires"} {formatExpiryDate(link.expiresAt)}
                               </span>
                             </div>
                             <span className={isExpired(link.expiresAt) ? "text-red-400" : "text-green-400"}>
