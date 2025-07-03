@@ -21,6 +21,12 @@ import { formatFileSize, formatDate } from "@/lib/utils"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useToast } from "@/hooks/use-toast"
 
+// API base URL configuration
+const API_BASE = 
+  typeof window !== "undefined"
+    ? ((process.env.NEXT_PUBLIC_API_BASE_URL as string | undefined) ?? "http://localhost:5000")
+    : ((process.env.NEXT_PUBLIC_API_BASE_URL as string | undefined) ?? "http://localhost:5000")
+
 interface FileGridProps {
   onShareFolder: (folderId: number) => void
   onPreviewFile: (file: any) => void
@@ -62,10 +68,6 @@ export function FileGrid({ onShareFolder, onPreviewFile, onRenameFolder }: FileG
       }
     }
   }
-  const API_BASE =
-    typeof window !== "undefined"
-      ? ((process.env.NEXT_PUBLIC_API_BASE_URL as string | undefined) ?? "http://localhost:5000")
-      : ((process.env.NEXT_PUBLIC_API_BASE_URL as string | undefined) ?? "http://localhost:5000")
 
   const handleDownload = async (fileId: number, fileName: string) => {
     try {
@@ -74,14 +76,79 @@ export function FileGrid({ onShareFolder, onPreviewFile, onRenameFolder }: FileG
         description: `Preparing ${fileName} for download`,
       })
       
-      // Use fetch with credentials to get the file URL and download
-      const response = await fetch(`${API_BASE}/api/files/${fileId}/download`, {
-        method: "GET",
-        credentials: "include", // Include cookies for authentication
-      })
+      // First, try to get the file details to access the direct Cloudinary URL
+      try {
+        const fileResponse = await fetch(`${API_BASE}/api/files/${fileId}`, {
+          method: "GET",
+          credentials: "include",
+        })
+        
+        if (fileResponse.ok) {
+          const fileData = await fileResponse.json()
+          const file = fileData.file
+          
+          // For PDFs, try direct Cloudinary access first
+          if (file.mimetype === 'application/pdf' && file.cloudUrl) {
+            // Try to open the PDF in a new tab (this works now with Cloudinary settings enabled)
+            window.open(file.cloudUrl, '_blank')
+            
+            toast({
+              title: "Download Started",
+              description: `${fileName} should open in a new tab. If not, trying alternative method...`,
+            })
+            
+            // Give the direct link a moment to work, then try the backend as backup
+            setTimeout(async () => {
+              await downloadViaBackend(fileId, fileName)
+            }, 2000)
+            
+            return
+          }
+        }
+      } catch (directError) {
 
-      if (response.ok) {
-        // Create blob from response and download
+      }
+      
+      // Fall back to backend download
+      await downloadViaBackend(fileId, fileName)
+      
+    } catch (error) {
+
+      toast({
+        title: "Download Failed",
+        description: "Could not download the file. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+  
+  const downloadViaBackend = async (fileId: number, fileName: string) => {
+    // Use fetch with credentials to get the file URL and download
+    const response = await fetch(`${API_BASE}/api/files/${fileId}/download`, {
+      method: "GET",
+      credentials: "include", // Include cookies for authentication
+    })
+
+    if (response.ok) {
+      const contentType = response.headers.get('content-type');
+      
+      // Check if the response is JSON (backend couldn't proxy file)
+      if (contentType && contentType.includes('application/json')) {
+        const data = await response.json();
+        
+        if (data.downloadUrl) {
+          // Backend provided a direct URL - open it in new tab
+          window.open(data.downloadUrl, '_blank');
+          
+          toast({
+            title: "Download Link Opened",
+            description: data.message || "File opened in new tab. If it doesn't work, check your browser's popup blocker.",
+          })
+        } else {
+          throw new Error(data.message || 'No download URL provided');
+        }
+      } else {
+        // Response is a file blob - download normally
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
         const link = document.createElement("a")
@@ -97,16 +164,9 @@ export function FileGrid({ onShareFolder, onPreviewFile, onRenameFolder }: FileG
           title: "Download Complete",
           description: `${fileName} has been downloaded.`,
         })
-      } else {
-        throw new Error(`Download failed with status: ${response.status}`)
       }
-    } catch (error) {
-      console.error("Download error:", error)
-      toast({
-        title: "Download Failed",
-        description: "Could not download the file. Please try again.",
-        variant: "destructive",
-      })
+    } else {
+      throw new Error(`Download failed with status: ${response.status}`)
     }
   }
 
@@ -129,13 +189,6 @@ export function FileGrid({ onShareFolder, onPreviewFile, onRenameFolder }: FileG
   const folderArray = Array.isArray(folders) ? folders : [];
   const fileArray = Array.isArray(files) ? files : [];
   
-  // Add debugging information
-  console.log("FileGrid Rendering - Raw folders:", folders);
-  console.log("FileGrid Rendering - Raw files:", files);
-  console.log("FileGrid Rendering - Processed folders:", folderArray);
-  console.log("FileGrid Rendering - Processed files:", fileArray);
-  console.log("FileGrid Rendering - Current folder:", currentFolder);
-  
   if (folderArray.length === 0 && fileArray.length === 0) {
     return (
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center py-12">
@@ -148,7 +201,6 @@ export function FileGrid({ onShareFolder, onPreviewFile, onRenameFolder }: FileG
         {currentFolder && (
           <button 
             onClick={() => {
-              console.log("Manual reload of folder:", currentFolder.id);
               loadFolder(currentFolder.id);
             }}
             className="mt-4 bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 transition-colors"

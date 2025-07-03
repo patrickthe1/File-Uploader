@@ -371,75 +371,107 @@ router.get('/:id/download', isAuthenticated, verifyFileOwnership, async (req, re
   try {
     const file = req.file; // Set by verifyFileOwnership middleware
 
-    // Log the Cloudinary URL for debugging
     console.log(`Downloading file: ${file.name}, Cloudinary URL: ${file.cloudUrl}`);
     console.log(`File mimetype: ${file.mimetype}, publicId: ${file.publicId}`);
 
-    // For PDFs and other non-image files, try to generate a proper Cloudinary URL
-    // PDFs might need different URL structure than images
-    let downloadUrl = file.cloudUrl;
-    
-    // If it's a PDF or other document, try different URL patterns
-    if (file.mimetype === 'application/pdf') {
-      // Try to construct the URL as raw resource type
-      const publicId = file.publicId;
-      const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-      
-      // Try different URL formats for PDFs
-      const rawUrl = `https://res.cloudinary.com/${cloudName}/raw/upload/${publicId}.pdf`;
-      const imageUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
-      
-      console.log(`Trying PDF URLs - Raw: ${rawUrl}, Image: ${imageUrl}`);
-      
-      // Use the raw URL for PDFs
-      downloadUrl = rawUrl;
-    }
+    // Set CORS headers first to ensure they're always present
+    res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
 
-    // Add attachment flag for download
-    const finalDownloadUrl = downloadUrl.includes('?') 
-      ? `${downloadUrl}&fl_attachment`
-      : `${downloadUrl}?fl_attachment`;
+    // Set appropriate headers for download
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.name)}"`);
+    res.setHeader('Content-Type', file.mimetype || 'application/octet-stream');
     
-    console.log(`Final download URL: ${finalDownloadUrl}`);
-    
+    // For files with ACL issues, let's try a different approach
+    // Use Cloudinary's admin API to get the file content directly
     try {
-      // Set appropriate headers for download
-      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.name)}"`);
-      res.setHeader('Content-Type', file.mimetype || 'application/octet-stream');
+      console.log('Attempting to fetch file using Cloudinary Admin API...');
       
-      // Try to proxy the file
-      const axios = await import('axios');
-      const response = await axios.default.get(finalDownloadUrl, {
-        responseType: 'stream',
-        maxRedirects: 5,
-        timeout: 30000,
-        headers: {
-          'Cache-Control': 'no-cache',
-          'User-Agent': 'Node.js Server'
-        }
+      // Generate a temporary URL that bypasses ACL restrictions
+      const tempUrl = cloudinary.url(file.publicId, {
+        resource_type: 'auto',
+        secure: true,
+        // Use transformation to potentially bypass some restrictions
+        flags: 'attachment',
+        type: 'upload'
       });
       
-      // Pipe the response directly to the client
+      console.log(`Generated temp URL: ${tempUrl}`);
+      
+      const axios = await import('axios');
+      const response = await axios.default.get(tempUrl, {
+        responseType: 'stream',
+        timeout: 30000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': '*/*'
+        },
+        // Don't follow redirects, handle them manually
+        maxRedirects: 0,
+        validateStatus: function (status) {
+          return status >= 200 && status < 400; // Accept redirects and success
+        }
+      });
+
+      console.log('Successfully fetched file from Cloudinary, streaming to client...');
       response.data.pipe(res);
+      return;
+
+    } catch (tempUrlError) {
+      console.error('Temp URL approach failed:', tempUrlError.message);
       
-    } catch (proxyError) {
-      console.error('Error proxying file from Cloudinary:', proxyError.message);
-      console.error('Response status:', proxyError.response?.status);
-      console.error('Response data:', proxyError.response?.data);
-      
-      // If the proxy fails, try redirecting the user directly to Cloudinary
-      if (!res.headersSent) {
-        console.log('Falling back to redirect approach');
-        return res.redirect(finalDownloadUrl);
-      } else {
-        console.error('Headers already sent, ending response');
-        res.end();
+      // If that fails, try the original URL without any transformations
+      try {
+        console.log('Trying original URL without transformations...');
+        const axios = await import('axios');
+        const response = await axios.default.get(file.cloudUrl, {
+          responseType: 'stream',
+          timeout: 30000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': '*/*',
+            'Referer': 'https://cloudinary.com'
+          },
+          maxRedirects: 5
+        });
+
+        console.log('Original URL worked, streaming to client...');
+        response.data.pipe(res);
+        return;
+
+      } catch (originalError) {
+        console.error('Original URL also failed:', originalError.message);
+        
+        // Last resort: Return the file URL for direct access
+        if (!res.headersSent) {
+          console.log('All download methods failed, providing direct URL...');
+          // Ensure CORS headers are set before JSON response
+          res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
+          res.setHeader('Access-Control-Allow-Credentials', 'true');
+          res.json({
+            downloadUrl: file.cloudUrl,
+            filename: file.name,
+            message: 'Direct download link - please copy and open in a new tab',
+            instructions: 'If the link doesn\'t work, your Cloudinary account may have access restrictions. Please check your Cloudinary settings.'
+          });
+        }
       }
     }
+
   } catch (error) {
     console.error('Download file error:', error);
     if (!res.headersSent) {
-      res.status(500).json({ message: 'Error downloading file', error: error.message });
+      // Ensure CORS headers are set before error response
+      res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.status(500).json({ 
+        message: 'Error downloading file', 
+        error: error.message,
+        downloadUrl: req.file?.cloudUrl,
+        instructions: 'Try copying the downloadUrl and opening it in a new browser tab'
+      });
     }
   }
 });

@@ -84,12 +84,10 @@ export const useFileStore = create<FileState>((set, get) => ({
 
       if (response.ok) {
         const data = await response.json()
-        console.log("API Response Data:", data);
 
         if (folderId) {
           // The API returns { folder: {...} } for specific folder requests
           const folderData = data.folder || data;
-          console.log("Folder data:", folderData);
           
           // Get files directly from the folder object
           const files = Array.isArray(folderData.files) ? folderData.files : [];
@@ -101,17 +99,18 @@ export const useFileStore = create<FileState>((set, get) => ({
           const currentHistory = get().navigationHistory;
           let newHistory = [...currentHistory];
           
-          // Check if this folder is already in history (going back)
+          // Check if this folder is already in history
           const existingIndex = newHistory.findIndex(f => f.id === folderData.id);
           if (existingIndex >= 0) {
-            // Going back - trim history to this point
+            // Update the existing folder data (in case name changed due to rename)
+            newHistory[existingIndex] = folderData;
+            // Trim history to this point (in case we navigated back)
             newHistory = newHistory.slice(0, existingIndex + 1);
           } else {
             // Going forward - add to history
             newHistory.push(folderData);
           }
           
-          console.log("Setting folder contents:", { folder: folderData, files, subfolders });
           set({ 
             currentFolder: folderData, 
             files: files, 
@@ -120,13 +119,11 @@ export const useFileStore = create<FileState>((set, get) => ({
           })
         } else {
           // For root folder listing - reset navigation history
-          console.log("Root folder data type:", typeof data, Array.isArray(data));
           
           // The API returns { folders: [...] } for root requests
           const folders = Array.isArray(data) ? data : 
                          (data.folders && Array.isArray(data.folders) ? data.folders : []);
           
-          console.log("Setting root folders:", folders);
           set({ folders: folders, files: [], currentFolder: null, navigationHistory: [] })
         }
       }
@@ -183,35 +180,58 @@ export const useFileStore = create<FileState>((set, get) => ({
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ name: newName }),
-      })
+      });
 
       if (response.ok) {
-        // Reload the current folder view to show the updated folder
-        const currentFolderId = get().currentFolder?.id
-        await get().loadFolder(currentFolderId)
+        const updatedFolder = await response.json();
         
+        set((state) => {
+          const isRenamingCurrentFolder = state.currentFolder?.id === folderId;
+
+          // Update the name of the current folder if it's the one being renamed
+          const newCurrentFolder = isRenamingCurrentFolder && state.currentFolder
+            ? { ...state.currentFolder, name: newName } as Folder
+            : state.currentFolder;
+
+          // Update the folder in the subfolders list
+          const newFolders = state.folders.map((folder) =>
+            folder.id === folderId ? { ...folder, name: newName } : folder
+          );
+
+          // Also update the folder if it's in the navigation history
+          const newHistory = state.navigationHistory.map((folder) =>
+            folder.id === folderId ? { ...folder, name: newName } : folder
+          );
+
+          return {
+            currentFolder: newCurrentFolder,
+            folders: newFolders,
+            navigationHistory: newHistory,
+          };
+        });
+
         toast({
           title: "Success",
-          description: `Folder renamed to "${newName}" successfully.`,
-        })
-        return true
+          description: `Folder renamed to "${newName}".`,
+        });
+        return true;
       } else {
-        const error = await response.json()
+        const error = await response.json();
         toast({
           title: "Error",
           description: error.message || "Failed to rename folder.",
           variant: "destructive",
-        })
+        });
+        return false;
       }
-      return false
     } catch (error) {
-      console.error("Rename folder error:", error)
+      console.error("Rename folder error:", error);
       toast({
         title: "Error",
         description: "Failed to rename folder. Please try again.",
         variant: "destructive",
-      })
-      return false
+      });
+      return false;
     }
   },
 
@@ -278,7 +298,6 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   createShareLink: async (folderId: number, duration = "7d") => {
     try {
-      console.log(`Creating share link for folder ID: ${folderId} with duration: ${duration}`);
       const response = await fetch(`${API_BASE}/api/folders/${folderId}/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -287,14 +306,12 @@ export const useFileStore = create<FileState>((set, get) => ({
       })
 
       if (!response.ok) {
-        console.error("Share link creation failed with status:", response.status);
         const errorText = await response.text();
-        console.error("Error response:", errorText);
         throw new Error(`Failed to create share link: ${response.statusText}`);
       }
 
       const data = await response.json();
-      console.log("Share link response:", data);
+      
       
       // Load the share links into the store
       await get().loadShareLinks();
