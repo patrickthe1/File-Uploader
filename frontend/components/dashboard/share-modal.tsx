@@ -121,36 +121,14 @@ export function ShareModal({ folderId, onClose }: ShareModalProps) {
     onClose()
   }
 
-  // Load the share link when the modal opens
   useEffect(() => {
-    if (folderId && !shareUrl) {
-      handleCreateLink()
+    // Clear state when the modal is reopened for a new folder
+    if (folderId) {
+      setShareUrl("");
+      setCopied(false);
+      setIsLoading(false);
     }
-  }, [folderId])
-  
-  // Automatically try to copy the link again when shareUrl changes
-  useEffect(() => {
-    const copyToClipboard = async () => {
-      if (shareUrl && !copied) {
-        try {
-          await navigator.clipboard.writeText(shareUrl)
-          setCopied(true)
-          console.log("Link copied to clipboard via useEffect")
-          toast({
-            title: "Link Copied to Clipboard",
-            description: "The share link has been copied to your clipboard.",
-          })
-        } catch (error) {
-          console.error("Failed to copy to clipboard via useEffect:", error)
-        }
-      }
-    }
-    
-    if (shareUrl) {
-      copyToClipboard()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shareUrl])
+  }, [folderId]);
 
   return (
     <AnimatePresence>
