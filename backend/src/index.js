@@ -18,7 +18,7 @@ initializePassport(passport);
 
 // Middleware
 app.use(cors({
-  origin: ['https://preview--vibe-vault-flow.lovable.app', 'http://localhost:8080'],
+  origin: ['https://preview--vibe-vault-flow.lovable.app', 'http://localhost:8080','https://file-uploader-nu-three.vercel.app'],
   credentials: true
 }));
 app.use(express.json());
@@ -26,7 +26,9 @@ app.use(express.urlencoded({ extended: false }));
 app.use(
   session({
     cookie: {
-      maxAge: 7 * 24 * 60 * 60 * 1000 // ms
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: 'none',
+      secure: true,
     },
     secret: process.env.SESSION_SECRET,
     resave: false,
