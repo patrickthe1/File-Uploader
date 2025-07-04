@@ -17,6 +17,7 @@ import {
   Edit,
 } from "lucide-react"
 import { useFileStore } from "@/lib/stores/file-store"
+import { useAuthStore } from "@/lib/stores/auth-store"
 import { formatFileSize, formatDate } from "@/lib/utils"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useToast } from "@/hooks/use-toast"
@@ -78,9 +79,10 @@ export function FileGrid({ onShareFolder, onPreviewFile, onRenameFolder }: FileG
       
       // First, try to get the file details to access the direct Cloudinary URL
       try {
+        const { getAuthHeaders } = useAuthStore.getState()
         const fileResponse = await fetch(`${API_BASE}/api/files/${fileId}`, {
           method: "GET",
-          credentials: "include",
+          headers: getAuthHeaders(),
         })
         
         if (fileResponse.ok) {
@@ -123,10 +125,11 @@ export function FileGrid({ onShareFolder, onPreviewFile, onRenameFolder }: FileG
   }
   
   const downloadViaBackend = async (fileId: number, fileName: string) => {
-    // Use fetch with credentials to get the file URL and download
+    // Use fetch with authorization headers to get the file URL and download
+    const { getAuthHeaders } = useAuthStore.getState()
     const response = await fetch(`${API_BASE}/api/files/${fileId}/download`, {
       method: "GET",
-      credentials: "include", // Include cookies for authentication
+      headers: getAuthHeaders(),
     })
 
     if (response.ok) {

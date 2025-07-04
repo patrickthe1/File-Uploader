@@ -1,10 +1,6 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import session from 'express-session';
-import { PrismaSessionStore } from '@quixo3/prisma-session-store';
 import { PrismaClient } from '@prisma/client';
-import passport from 'passport';
-import initializePassport from './config/passport.js';
 import cors from 'cors';
 
 
@@ -14,8 +10,6 @@ const app = express();
 const port = process.env.PORT || 5000;
 const prisma = new PrismaClient();
 
-initializePassport(passport);
-
 // Middleware
 app.use(cors({
   origin: ['https://preview--vibe-vault-flow.lovable.app', 'http://localhost:8080','https://file-uploader-nu-three.vercel.app'],
@@ -23,31 +17,10 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-app.use(
-  session({
-    cookie: {
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      sameSite: 'none',
-      secure: true,
-    },
-    secret: process.env.SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    store: new PrismaSessionStore(prisma, {
-      checkPeriod: 2 * 60 * 1000, //ms
-      dbRecordIdIsSessionId: true,
-      dbRecordIdFunction: undefined,
-      sessionModelName: "Session", // Make sure this matches your model name exactly
-      expiresField:"expuresAt"
-    }),
-  })
-);
-
-app.use(passport.initialize());
-app.use(passport.session());
 
 // Import and use routes
-import authRoutes, { isAuthenticated } from './routes/auth.js';
+import authRoutes from './routes/auth.js';
+import { authenticateJWT } from './utils/jwt.js';
 import folderRoutes from './routes/folders.js';
 import fileRoutes from './routes/files.js';
 import shareLinksRoutes from './routes/shareLinks.js';
@@ -64,7 +37,7 @@ app.get('/', (req, res) => {
 });
 
 // Test protected route
-app.get('/protected', isAuthenticated, (req, res) => {
+app.get('/protected', authenticateJWT, (req, res) => {
   res.json({ message: 'You have access to protected content', user: req.user });
 });
 

@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { toast } from "@/hooks/use-toast"
+import { useAuthStore } from "./auth-store"
 
 interface FileItem {
   id: number
@@ -80,7 +81,10 @@ export const useFileStore = create<FileState>((set, get) => ({
         ? `${API_BASE}/api/folders/${folderId}?includeChildren=true&includeFiles=true`
         : `${API_BASE}/api/folders?parentId=null`
 
-      const response = await fetch(url, { credentials: "include" })
+      const authHeaders = useAuthStore.getState().getAuthHeaders()
+      const response = await fetch(url, { 
+        headers: { ...authHeaders } 
+      })
 
       if (response.ok) {
         const data = await response.json()
@@ -136,10 +140,13 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   createFolder: async (name: string, parentId?: number) => {
     try {
+      const authHeaders = useAuthStore.getState().getAuthHeaders()
       const response = await fetch(`${API_BASE}/api/folders`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: { 
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         body: JSON.stringify({ name, parentId }),
       })
 
@@ -175,10 +182,13 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   renameFolder: async (folderId: number, newName: string) => {
     try {
+      const authHeaders = useAuthStore.getState().getAuthHeaders()
       const response = await fetch(`${API_BASE}/api/folders/${folderId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: { 
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         body: JSON.stringify({ name: newName }),
       });
 
@@ -241,9 +251,10 @@ export const useFileStore = create<FileState>((set, get) => ({
     if (folderId) formData.append("folderId", folderId.toString())
 
     try {
+      const authHeaders = useAuthStore.getState().getAuthHeaders()
       const response = await fetch(`${API_BASE}/api/files/upload`, {
         method: "POST",
-        credentials: "include",
+        headers: authHeaders,
         body: formData,
       })
 
@@ -260,9 +271,10 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   deleteFile: async (fileId: number) => {
     try {
+      const authHeaders = useAuthStore.getState().getAuthHeaders()
       const response = await fetch(`${API_BASE}/api/files/${fileId}`, {
         method: "DELETE",
-        credentials: "include",
+        headers: authHeaders,
       })
 
       if (response.ok) {
@@ -279,9 +291,10 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   deleteFolder: async (folderId: number) => {
     try {
+      const authHeaders = useAuthStore.getState().getAuthHeaders()
       const response = await fetch(`${API_BASE}/api/folders/${folderId}`, {
         method: "DELETE",
-        credentials: "include",
+        headers: authHeaders,
       })
 
       if (response.ok) {
@@ -298,10 +311,13 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   createShareLink: async (folderId: number, duration = "7d") => {
     try {
+      const authHeaders = useAuthStore.getState().getAuthHeaders()
       const response = await fetch(`${API_BASE}/api/folders/${folderId}/share`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: { 
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         body: JSON.stringify({ duration }),
       })
 
@@ -334,8 +350,9 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   loadShareLinks: async () => {
     try {
+      const authHeaders = useAuthStore.getState().getAuthHeaders()
       const response = await fetch(`${API_BASE}/api/sharelinks`, {
-        credentials: "include",
+        headers: authHeaders,
       })
 
       if (response.ok) {
@@ -353,9 +370,10 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   deleteShareLink: async (shareId: number) => {
     try {
+      const authHeaders = useAuthStore.getState().getAuthHeaders()
       const response = await fetch(`${API_BASE}/api/sharelinks/${shareId}`, {
         method: "DELETE",
-        credentials: "include",
+        headers: authHeaders,
       })
 
       if (response.ok) {
@@ -371,10 +389,13 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   moveFile: async (fileId: number, newFolderId?: number) => {
     try {
+      const authHeaders = useAuthStore.getState().getAuthHeaders()
       const response = await fetch(`${API_BASE}/api/files/${fileId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: { 
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         body: JSON.stringify({ folderId: newFolderId }),
       })
 
@@ -392,10 +413,13 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   moveFolder: async (folderId: number, newParentId?: number) => {
     try {
+      const authHeaders = useAuthStore.getState().getAuthHeaders()
       const response = await fetch(`${API_BASE}/api/folders/${folderId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: { 
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         body: JSON.stringify({ parentId: newParentId }),
       })
 

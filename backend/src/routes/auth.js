@@ -1,18 +1,13 @@
 import express from 'express';
-import passport from 'passport';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { generateToken, authenticateJWT } from '../utils/jwt.js';
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
-// Middleware to check if the user is authenticated
-export const isAuthenticated = (req, res, next) => {
-  if (req.isAuthenticated()) {
-    return next();
-  }
-  res.status(401).json({ message: 'You are not authenticated' });
-};
+// Export the JWT middleware for use in other routes
+export const isAuthenticated = authenticateJWT;
 
 // Registration Route
 router.post('/register', async (req, res) => {
@@ -63,47 +58,50 @@ router.post('/register', async (req, res) => {
 });
 
 // Login Route
-router.post('/login', (req, res, next) => {
-  // Validation
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ message: 'Email and password are required' });
-  }
-  
-  passport.authenticate('local', (err, user, info) => {
-    if (err) {
-      return next(err);
-    }
-    if (!user) {
-      // Authentication failed
-      return res.status(401).json({ message: info.message || 'Authentication failed' });
+router.post('/login', async (req, res) => {
+  try {
+    // Validation
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
     }
     
-    // Manual login using req.login
-    req.login(user, (err) => {
-      if (err) {
-        return next(err);
+    // Find user
+    const user = await prisma.users.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+    
+    // Verify password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+    
+    // Generate JWT token
+    const token = generateToken(user);
+    
+    // Return success with token
+    res.json({
+      message: 'Logged in successfully',
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name
       }
-      
-      // Authentication successful
-      return res.json({
-        message: 'Logged in successfully',
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name
-        }
-      });
     });
-  })(req, res, next);
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Error during login', error: error.message });
+  }
 });
 
 // Logout Route
-router.get('/logout', (req, res, next) => {
-  req.logout((err) => {
-    if (err) { return next(err); }
-    res.json({ message: 'Logged out successfully' });
-  });
+router.post('/logout', (req, res) => {
+  // With JWT, logout is handled client-side by removing the token
+  // The server doesn't need to maintain any session state
+  res.json({ message: 'Logged out successfully' });
 });
 
 // Profile Route (protected)

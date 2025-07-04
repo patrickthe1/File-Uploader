@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { useAuthStore } from "@/lib/stores/auth-store"
 
 export default function AuthStatusPage() {
   const [status, setStatus] = useState<any>(null);
@@ -16,8 +17,9 @@ export default function AuthStatusPage() {
   const checkAuthStatus = async () => {
     setLoading(true);
     try {
+      const { getAuthHeaders } = useAuthStore.getState()
       const response = await fetch(`${API_BASE}/api/auth-status`, {
-        credentials: "include",
+        headers: getAuthHeaders(),
       });
       
       if (response.ok) {
@@ -38,10 +40,13 @@ export default function AuthStatusPage() {
     
     setLoading(true);
     try {
+      const { getAuthHeaders } = useAuthStore.getState()
       const response = await fetch(`${API_BASE}/api/folders`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: { 
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
         body: JSON.stringify({ name: folderName }),
       });
       
