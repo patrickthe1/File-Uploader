@@ -18,7 +18,7 @@ initializePassport(passport);
 
 // Middleware
 app.use(cors({
-  origin: ['https://preview--vibe-vault-flow.lovable.app', 'http://localhost:3000'],
+  origin: ['https://preview--vibe-vault-flow.lovable.app', 'http://localhost:8080'],
   credentials: true
 }));
 app.use(express.json());

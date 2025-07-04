@@ -375,7 +375,7 @@ router.get('/:id/download', isAuthenticated, verifyFileOwnership, async (req, re
     console.log(`File mimetype: ${file.mimetype}, publicId: ${file.publicId}`);
 
     // Set CORS headers first to ensure they're always present
-    res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
+    res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:8080');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
